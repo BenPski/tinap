@@ -92,6 +92,10 @@ async fn register_user(username: String, password: String) -> anyhow::Result<()>
                         ClientRegistrationFinishParameters::default(),
                     )
                     .unwrap();
+                println!(
+                    "Static key: {:?}",
+                    client_finish_registration_result.server_s_pk
+                );
                 let message_bytes = client_finish_registration_result.message.serialize();
                 println!("Client sending `{:?}`", &message_bytes);
                 ws.write_frame(Frame::new(
@@ -153,6 +157,10 @@ async fn authenticate_user(username: String, password: String) -> anyhow::Result
                 auth = false;
             } else {
                 let client_login_finish_result = result.unwrap();
+                println!(
+                    "Static key login: {:?}",
+                    client_login_finish_result.server_s_pk
+                );
                 let credential_finalization_bytes = client_login_finish_result.message.serialize();
                 println!(
                     "credential finalization `{:?}`",

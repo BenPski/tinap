@@ -26,9 +26,12 @@
 //     }
 // }
 
+use std::fs::{read, read_to_string, write};
+
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use fastwebsockets::{upgrade, Frame, OpCode, WebSocketError};
 use opaque_ke::{
+    keypair::{self, KeyPair},
     CredentialFinalization, CredentialRequest, RegistrationRequest, RegistrationUpload,
     ServerLogin, ServerLoginStartParameters, ServerRegistration, ServerSetup,
 };
@@ -274,10 +277,27 @@ async fn root(ws: upgrade::IncomingUpgrade) -> impl IntoResponse {
 
 #[tokio::main]
 async fn main() {
+    let server_setup = match read("server_setup") {
+        Ok(data) => bincode::deserialize(&data).expect("Failed to deserialize server_setup"),
+        Err(err) => {
+            println!("Error reading server_setup: `{err}`");
+            println!("Creating server_setup");
+            let server_setup = ServerSetup::<Scheme>::new(&mut OsRng);
+            let encode =
+                bincode::serialize(&server_setup).expect("Failed to serialize server_setup");
+            write("server_setup", encode).expect("Failed to write file");
+            server_setup
+        }
+    };
     let state = Server {
-        server_setup: ServerSetup::new(&mut OsRng),
+        server_setup,
         store: sled::open("tinap_db").unwrap(),
     };
+
+    // let state = Server {
+    //     server_setup: ServerSetup::new(&mut OsRng),
+    //     store: sled::open("tinap_db").unwrap(),
+    // };
     let app = Router::new()
         .route("/", get(root))
         .route("/registration", get(ws_registration))
