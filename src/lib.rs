@@ -15,7 +15,7 @@ impl CipherSuite for Scheme {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct WithUsername {
-    pub username: Vec<u8>,
-    pub data: Vec<u8>,
+pub struct WithUsername<'a> {
+    pub username: &'a [u8],
+    pub data: &'a [u8],
 }

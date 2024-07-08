@@ -61,7 +61,7 @@ async fn register_user(username: String, password: String) -> anyhow::Result<()>
     let username = username.as_bytes();
     let with_username = WithUsername {
         username: username.into(),
-        data: registration_request_bytes.as_slice().to_vec(),
+        data: registration_request_bytes.as_slice(),
     };
     let data = bincode::serialize(&with_username).unwrap();
 
@@ -123,7 +123,7 @@ async fn authenticate_user(username: String, password: String) -> anyhow::Result
     let mut ws = connect("127.0.0.1", 6969, "authenticate").await.unwrap();
     let data = WithUsername {
         username: username.as_bytes().into(),
-        data: credential_request_bytes.as_slice().to_vec(),
+        data: credential_request_bytes.as_slice(),
     };
     let data = bincode::serialize(&data).unwrap();
     println!("Client sending");
@@ -148,44 +148,46 @@ async fn authenticate_user(username: String, password: String) -> anyhow::Result
             );
 
             if result.is_err() {
-                return Ok(false);
-            }
+                ws.write_frame(Frame::close(1000, b"not authenitcated".as_slice()))
+                    .await?;
+                auth = false;
+            } else {
+                let client_login_finish_result = result.unwrap();
+                let credential_finalization_bytes = client_login_finish_result.message.serialize();
+                println!(
+                    "credential finalization `{:?}`",
+                    &credential_finalization_bytes
+                );
+                ws.write_frame(Frame::new(
+                    true,
+                    OpCode::Binary,
+                    None,
+                    credential_finalization_bytes.as_slice().into(),
+                ))
+                .await
+                .unwrap();
 
-            let client_login_finish_result = result.unwrap();
-            let credential_finalization_bytes = client_login_finish_result.message.serialize();
-            println!(
-                "credential finalization `{:?}`",
-                &credential_finalization_bytes
-            );
-            ws.write_frame(Frame::new(
-                true,
-                OpCode::Binary,
-                None,
-                credential_finalization_bytes.as_slice().into(),
-            ))
-            .await
-            .unwrap();
-
-            let session_frame = ws.read_frame().await?;
-            match session_frame.opcode {
-                OpCode::Binary => {
-                    let server_key = session_frame.payload.to_vec();
-                    auth = client_login_finish_result.session_key.to_vec() == server_key;
-                    ws.write_frame(Frame::new(
-                        true,
-                        OpCode::Binary,
-                        None,
-                        if auth { vec![1] } else { vec![0] }.as_slice().into(),
-                    ))
-                    .await
-                    .unwrap();
-                    let final_frame = ws.read_frame().await?;
-                    match final_frame.opcode {
-                        OpCode::Close => println!("Done with authentication"),
-                        _ => {}
+                let session_frame = ws.read_frame().await?;
+                match session_frame.opcode {
+                    OpCode::Binary => {
+                        let server_key = session_frame.payload.to_vec();
+                        auth = client_login_finish_result.session_key.to_vec() == server_key;
+                        ws.write_frame(Frame::new(
+                            true,
+                            OpCode::Binary,
+                            None,
+                            if auth { vec![1] } else { vec![0] }.as_slice().into(),
+                        ))
+                        .await
+                        .unwrap();
+                        let final_frame = ws.read_frame().await?;
+                        match final_frame.opcode {
+                            OpCode::Close => println!("Done with authentication"),
+                            _ => {}
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
         _ => {}
@@ -196,9 +198,9 @@ async fn authenticate_user(username: String, password: String) -> anyhow::Result
 #[tokio::main]
 async fn main() {
     let (username, password) = ("somebody".to_string(), "something".to_string());
-    register_user(username.clone(), password.clone())
-        .await
-        .unwrap();
+    // register_user(username.clone(), password.clone())
+    //     .await
+    //     .unwrap();
     let auth = authenticate_user(username, password).await.unwrap();
     println!("Auth: {auth}");
 }
