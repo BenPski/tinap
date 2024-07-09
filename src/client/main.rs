@@ -205,10 +205,10 @@ async fn authenticate_user(username: String, password: String) -> anyhow::Result
 
 #[tokio::main]
 async fn main() {
-    let (username, password) = ("somebody".to_string(), "something".to_string());
-    // register_user(username.clone(), password.clone())
-    //     .await
-    //     .unwrap();
+    let (username, password) = ("bobody".to_string(), "something".to_string());
+    register_user(username.clone(), password.clone())
+        .await
+        .unwrap();
     let auth = authenticate_user(username, password).await.unwrap();
     println!("Auth: {auth}");
 }

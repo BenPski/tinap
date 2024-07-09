@@ -1,41 +1,16 @@
-// async fn hello(_: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-//     Ok(Response::new(Full::new(Bytes::from("Hey"))))
-// }
-
-// #[tokio::main]
-// async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-//     let server_state = Arc::new(ServerSetup::<Scheme>::new(&mut OsRng));
-//     let addr = SocketAddr::from(([127, 0, 0, 1], 6969));
-//
-//     let listener = TcpListener::bind(addr).await?;
-//
-//     loop {
-//         let (stream, _) = listener.accept().await?;
-//
-//         let io = TokioIo::new(stream);
-//
-//         let server_state = server_state.clone();
-//
-//         let service = service_fn(move |req| async move {
-//             Ok::<_, hyper::Error>(Response::new(Full::new(Bytes::from(format!("Request")))))
-//         });
-//
-//         if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
-//             println!("Error serving connection: {:?}", err);
-//         }
-//     }
-// }
-
-use std::fs::{read, read_to_string, write};
+use std::fs::{read, write};
 
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use fastwebsockets::{upgrade, Frame, OpCode, WebSocketError};
+use hyper::upgrade::Upgraded;
+use hyper_util::rt::TokioIo;
 use opaque_ke::{
-    keypair::{self, KeyPair},
     CredentialFinalization, CredentialRequest, RegistrationRequest, RegistrationUpload,
-    ServerLogin, ServerLoginStartParameters, ServerRegistration, ServerSetup,
+    ServerLogin, ServerLoginStartParameters, ServerLoginStartResult, ServerRegistration,
+    ServerSetup,
 };
 use rand::rngs::OsRng;
+use thiserror::Error;
 use tinap::{Scheme, WithUsername};
 
 #[derive(Clone)]
@@ -44,74 +19,396 @@ struct Server {
     store: sled::Db,
 }
 
-async fn handle_client_registration(
-    fut: upgrade::UpgradeFut,
-    server: Server,
-) -> Result<(), WebSocketError> {
-    let mut ws = fastwebsockets::FragmentCollector::new(fut.await?);
-    loop {
-        let frame = ws.read_frame().await?;
-        match frame.opcode {
-            OpCode::Close => break,
-            OpCode::Binary => {
-                println!("Server registration start");
-                let data = frame.payload.to_vec();
-                let data: WithUsername = bincode::deserialize(&data).unwrap();
-                let username = data.username;
-                println!("Got username: `{:?}`", username);
-                let registration_request_bytes = data.data;
-                // println!("Server received: `{:?}`", &registration_request_bytes);
-                let server_registration_start_result = ServerRegistration::<Scheme>::start(
-                    &server.server_setup,
-                    RegistrationRequest::deserialize(&registration_request_bytes).unwrap(),
-                    username,
-                )
-                .unwrap();
-                let registration_response_bytes =
-                    server_registration_start_result.message.serialize();
-                // println!("Server sending: `{registration_response_bytes:?}`");
-                ws.write_frame(Frame::new(
-                    true,
-                    OpCode::Binary,
-                    None,
-                    registration_response_bytes.as_slice().into(),
-                ))
-                .await?;
-                let final_frame = ws.read_frame().await?;
-                match final_frame.opcode {
+struct ServerRegStateWrapper {
+    state: ServerRegState,
+    username: Vec<u8>,
+}
+
+enum ServerRegState {
+    Initial,
+    WaitingForFinal,
+}
+
+struct ServerAuthStateWrapper {
+    state: ServerAuthState,
+    server_login_start_result: Option<ServerLoginStartResult<Scheme>>,
+}
+
+enum ServerAuthState {
+    Initial,
+    WaitingForFinal,
+    Confirm,
+}
+
+#[derive(Debug, Error)]
+enum ServerError {
+    #[error("Communication terminated early")]
+    ClosedEarly,
+    #[error("Failed to deserialize transferred data")]
+    DeserializeFailure,
+    #[error("registration error")]
+    RegistrationError,
+    #[error("Could not query database")]
+    DBConnection,
+    #[error("User already exists")]
+    UserAlreadyExists,
+    #[error("User is not registered")]
+    NotRegistered,
+    #[error("Login process failed")]
+    LoginFailure,
+}
+
+impl ServerError {
+    // not sure how appropriate these are
+    fn to_code(&self) -> u16 {
+        match self {
+            Self::ClosedEarly => 1000,
+            Self::DeserializeFailure => 1007,
+            Self::RegistrationError => 1008,
+            Self::DBConnection => 1011,
+            Self::UserAlreadyExists => 1008,
+            Self::NotRegistered => 1008,
+            Self::LoginFailure => 1008,
+        }
+    }
+}
+
+impl Server {
+    async fn error(
+        mut ws: fastwebsockets::FragmentCollector<TokioIo<Upgraded>>,
+        err: &ServerError,
+    ) -> Result<(), WebSocketError> {
+        ws.write_frame(Frame::close(
+            err.to_code(),
+            err.to_string().as_bytes().into(),
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn registration(&self, fut: upgrade::UpgradeFut) -> anyhow::Result<()> {
+        let mut ws = fastwebsockets::FragmentCollector::new(fut.await?);
+        let mut state = ServerRegStateWrapper {
+            state: ServerRegState::Initial,
+            username: vec![],
+        };
+        loop {
+            let frame = ws.read_frame().await?;
+            match state.state {
+                ServerRegState::Initial => match frame.opcode {
+                    OpCode::Binary => {
+                        println!("Server registration start");
+
+                        // extract data from payload
+                        let frame_data = frame.payload.to_vec();
+                        let data: WithUsername = if let Ok(data) = bincode::deserialize(&frame_data)
+                        {
+                            data
+                        } else {
+                            let err = ServerError::DeserializeFailure;
+                            Server::error(ws, &err).await?;
+                            return Err(err.into());
+                        };
+                        let username = data.username;
+                        println!("Got username: `{:?}`", username);
+                        let registration_request_bytes = data.data;
+
+                        // handle registration
+                        let registration_request =
+                            match RegistrationRequest::deserialize(&registration_request_bytes) {
+                                Ok(registration_request) => registration_request,
+                                Err(_err) => {
+                                    let err = ServerError::DeserializeFailure;
+                                    Server::error(ws, &err).await?;
+                                    return Err(err.into());
+                                }
+                            };
+                        let server_registration_start_result =
+                            match ServerRegistration::<Scheme>::start(
+                                &self.server_setup,
+                                registration_request,
+                                username,
+                            ) {
+                                Ok(res) => res,
+                                Err(_err) => {
+                                    let err = ServerError::RegistrationError;
+                                    Server::error(ws, &err).await?;
+                                    return Err(err.into());
+                                }
+                            };
+                        let registration_response_bytes =
+                            server_registration_start_result.message.serialize();
+                        let next_frame = Frame::new(
+                            true,
+                            OpCode::Binary,
+                            None,
+                            registration_response_bytes.as_slice().into(),
+                        );
+
+                        ws.write_frame(next_frame).await?;
+                        state.state = ServerRegState::WaitingForFinal;
+                        state.username = username.to_vec();
+                    }
+                    OpCode::Close => break,
+                    _ => {}
+                },
+                ServerRegState::WaitingForFinal => match frame.opcode {
                     OpCode::Binary => {
                         println!("Server finalization");
-                        let message_bytes = final_frame.payload.to_vec();
+
+                        // extract data
+                        let message_bytes = frame.payload.to_vec();
                         // println!("Server received: `{:?}`", &message_bytes);
 
-                        let password_file = ServerRegistration::finish(
-                            RegistrationUpload::<Scheme>::deserialize(&message_bytes).unwrap(),
-                        );
+                        let registration_upload =
+                            match RegistrationUpload::<Scheme>::deserialize(&message_bytes) {
+                                Ok(res) => res,
+                                Err(_err) => {
+                                    let err = ServerError::RegistrationError;
+                                    Server::error(ws, &err).await?;
+                                    return Err(err.into());
+                                }
+                            };
+                        let password_file = ServerRegistration::finish(registration_upload);
                         let password_serialized = password_file.serialize();
-                        // println!("Password to store: `{:?}`", password_serialized);
-                        if !server.store.contains_key(username).unwrap() {
-                            println!("Storing: {:?}, {:?}", username, password_serialized);
-                            let res = server
+
+                        // insert credentials
+                        let contains_key = match self.store.contains_key(&state.username) {
+                            Ok(res) => res,
+                            Err(_err) => {
+                                let err = ServerError::DBConnection;
+                                Server::error(ws, &err).await?;
+                                return Err(err.into());
+                            }
+                        };
+                        if !contains_key {
+                            println!("Storing: {:?}, {:?}", &state.username, password_serialized);
+                            if let Err(_err) = self
                                 .store
-                                .insert(username, password_serialized.as_slice());
-                            println!("Insertion result: `{res:?}`");
+                                .insert(&state.username, password_serialized.as_slice())
+                            {
+                                let err = ServerError::DBConnection;
+                                Server::error(ws, &err).await?;
+                                return Err(err.into());
+                            }
                         } else {
-                            println!("User already registered");
+                            let err = ServerError::UserAlreadyExists;
+                            Server::error(ws, &err).await?;
+                            return Err(err.into());
                         }
 
                         ws.write_frame(Frame::close(1000, b"done".as_slice().into()))
-                            .await
-                            .unwrap();
+                            .await?;
+                        return Ok(());
                     }
-                    _ => {}
-                }
+                    OpCode::Close => {
+                        println!("Prematurely closed");
+                        return Err(ServerError::ClosedEarly.into());
+                    }
+                    _ => {
+                        println!(
+                            "Unexpected frame received `{:?}` with `{:?}`",
+                            frame.opcode, frame.payload
+                        );
+                    }
+                },
             }
-
-            _ => {}
         }
+        Ok(())
     }
 
-    Ok(())
+    async fn authenticate(&self, fut: upgrade::UpgradeFut) -> anyhow::Result<()> {
+        let mut ws = fastwebsockets::FragmentCollector::new(fut.await?);
+        let mut state = ServerAuthStateWrapper {
+            state: ServerAuthState::Initial,
+            server_login_start_result: None,
+        };
+        let mut result = Ok(());
+        loop {
+            let frame = ws.read_frame().await?;
+            match state.state {
+                ServerAuthState::Initial => match frame.opcode {
+                    OpCode::Binary => {
+                        println!("Server login start");
+                        let data = frame.payload.to_vec();
+                        let data: WithUsername = match bincode::deserialize(&data) {
+                            Ok(data) => data,
+                            Err(_err) => {
+                                result = Err(ServerError::DeserializeFailure);
+                                break;
+                            }
+                        };
+                        let username = data.username;
+                        let credential_request_bytes = data.data;
+                        println!("username: `{username:?}`");
+                        let contains_key = match self.store.contains_key(username) {
+                            Ok(res) => res,
+                            Err(_err) => {
+                                result = Err(ServerError::DBConnection);
+                                break;
+                            }
+                        };
+                        if !contains_key {
+                            println!("User is not registered");
+                            result = Err(ServerError::UserAlreadyExists);
+                            break;
+                        }
+                        // println!("Server received: `{:?}`", &credential_request_bytes);
+                        let password_lookup = match self.store.get(username) {
+                            Ok(res) => res,
+                            Err(_err) => {
+                                result = Err(ServerError::DBConnection);
+                                break;
+                            }
+                        };
+                        let password_file_bytes = if let Some(res) = password_lookup {
+                            res
+                        } else {
+                            result = Err(ServerError::NotRegistered);
+                            break;
+                        };
+                        println!("Looked up: {:?}, {:?}", username, password_file_bytes);
+                        let password_file =
+                            match ServerRegistration::<Scheme>::deserialize(&password_file_bytes) {
+                                Ok(res) => res,
+                                Err(_err) => {
+                                    result = Err(ServerError::DeserializeFailure);
+                                    break;
+                                }
+                            };
+                        let credential_request =
+                            match CredentialRequest::deserialize(&credential_request_bytes) {
+                                Ok(res) => res,
+                                Err(_err) => {
+                                    result = Err(ServerError::DeserializeFailure);
+                                    break;
+                                }
+                            };
+                        let server_login_start_result = match ServerLogin::start(
+                            &mut OsRng,
+                            &self.server_setup,
+                            Some(password_file),
+                            credential_request,
+                            &username,
+                            ServerLoginStartParameters::default(),
+                        ) {
+                            Ok(res) => res,
+                            Err(_err) => {
+                                result = Err(ServerError::LoginFailure);
+                                break;
+                            }
+                        };
+                        let credential_response_bytes =
+                            server_login_start_result.message.serialize();
+
+                        // println!("Server sending: `{credential_response_bytes:?}`");
+                        ws.write_frame(Frame::new(
+                            true,
+                            OpCode::Binary,
+                            None,
+                            credential_response_bytes.as_slice().into(),
+                        ))
+                        .await?;
+                        state.state = ServerAuthState::WaitingForFinal;
+                        state.server_login_start_result = Some(server_login_start_result.clone());
+                    }
+                    OpCode::Close => {
+                        println!("Prematurely closed");
+                        return Err(ServerError::ClosedEarly.into());
+                    }
+                    _ => {
+                        println!(
+                            "Unexpected frame received `{:?}` with `{:?}`",
+                            frame.opcode, frame.payload
+                        );
+                    }
+                },
+                ServerAuthState::WaitingForFinal => match frame.opcode {
+                    OpCode::Binary => {
+                        println!("Server finalization");
+                        let credential_finalization_bytes = frame.payload.to_vec();
+
+                        let server_login_start_result =
+                            state.server_login_start_result.clone().unwrap();
+                        // let server_login_finish_result =
+                        //     CredentialFinalization::deserialize(&credential_finalization_bytes)
+                        //         .and_then(|credential_finalization| {
+                        //             server_login_start_result
+                        //                 .state
+                        //                 .finish(credential_finalization)
+                        //         })
+                        //         .map_err(|_| ServerError::LoginFailure)?;
+
+                        let credential_finalization = match CredentialFinalization::deserialize(
+                            &credential_finalization_bytes,
+                        ) {
+                            Ok(res) => res,
+                            Err(_err) => {
+                                result = Err(ServerError::DeserializeFailure);
+                                break;
+                            }
+                        };
+                        let server_login_finish_result = match server_login_start_result
+                            .state
+                            .finish(credential_finalization)
+                        {
+                            Ok(res) => res,
+                            Err(_err) => {
+                                result = Err(ServerError::LoginFailure);
+                                break;
+                            }
+                        };
+
+                        ws.write_frame(Frame::new(
+                            true,
+                            OpCode::Binary,
+                            None,
+                            server_login_finish_result.session_key.as_slice().into(),
+                        ))
+                        .await?;
+                        state.state = ServerAuthState::Confirm;
+                    }
+                    OpCode::Close => {
+                        println!("Prematurely closed");
+                        return Err(ServerError::ClosedEarly.into());
+                    }
+                    _ => {
+                        println!(
+                            "Unexpected frame received `{:?}` with `{:?}`",
+                            frame.opcode, frame.payload
+                        );
+                    }
+                },
+                ServerAuthState::Confirm => match frame.opcode {
+                    OpCode::Binary => {
+                        let status = frame.payload.to_vec();
+                        let authenticated = vec![1] == status;
+                        println!("Authenticated: `{authenticated}`");
+                        ws.write_frame(Frame::close(1000, "done".as_bytes().into()))
+                            .await?;
+                        break;
+                    }
+                    OpCode::Close => {
+                        println!("Prematurely closed");
+                        return Err(ServerError::ClosedEarly.into());
+                    }
+                    _ => {
+                        println!(
+                            "Unexpected frame received `{:?}` with `{:?}`",
+                            frame.opcode, frame.payload
+                        );
+                    }
+                },
+            }
+        }
+
+        if let Err(err) = result {
+            Server::error(ws, &err).await?;
+            return Err(err.into());
+        }
+
+        Ok(())
+    }
 }
 
 async fn ws_registration(
@@ -120,116 +417,12 @@ async fn ws_registration(
 ) -> impl IntoResponse {
     let (response, fut) = ws.upgrade().unwrap();
     tokio::task::spawn(async move {
-        if let Err(e) = handle_client_registration(fut, state).await {
+        if let Err(e) = state.registration(fut).await {
             eprintln!("Error in websocket connection: `{e}`");
         }
     });
 
     response
-}
-
-async fn handle_client_authenticate(
-    fut: upgrade::UpgradeFut,
-    server: Server,
-) -> Result<(), WebSocketError> {
-    let mut ws = fastwebsockets::FragmentCollector::new(fut.await?);
-    loop {
-        let frame = ws.read_frame().await?;
-        match frame.opcode {
-            OpCode::Close => break,
-            OpCode::Binary => {
-                println!("Server login start");
-                let data = frame.payload.to_vec();
-                let data: WithUsername = bincode::deserialize(&data).unwrap();
-                let username = data.username;
-                let credential_request_bytes = data.data;
-                println!("username: `{username:?}`");
-                if !server.store.contains_key(username).unwrap() {
-                    println!("User is not registered");
-                    ws.write_frame(Frame::close(1000, "not registered".as_bytes()))
-                        .await?;
-                    break;
-                }
-                // println!("Server received: `{:?}`", &credential_request_bytes);
-                let password_file_bytes = server.store.get(username).unwrap().unwrap();
-                println!("Looked up: {:?}, {:?}", username, password_file_bytes);
-                let password_file =
-                    ServerRegistration::<Scheme>::deserialize(&password_file_bytes).unwrap();
-                let server_login_start_result = ServerLogin::start(
-                    &mut OsRng,
-                    &server.server_setup,
-                    Some(password_file),
-                    CredentialRequest::deserialize(&credential_request_bytes).unwrap(),
-                    &username,
-                    ServerLoginStartParameters::default(),
-                )
-                .unwrap();
-                let credential_response_bytes = server_login_start_result.message.serialize();
-
-                // println!("Server sending: `{credential_response_bytes:?}`");
-                ws.write_frame(Frame::new(
-                    true,
-                    OpCode::Binary,
-                    None,
-                    credential_response_bytes.as_slice().into(),
-                ))
-                .await?;
-
-                let final_frame = ws.read_frame().await?;
-                match final_frame.opcode {
-                    OpCode::Close => {
-                        println!("Failed to authenticate");
-                        break;
-                    }
-                    OpCode::Binary => {
-                        println!("Server finalization");
-                        let credential_finalization_bytes = final_frame.payload.to_vec();
-                        // println!(
-                        //     "credential finalization: `{:?}`",
-                        //     &credential_finalization_bytes
-                        // );
-
-                        let server_login_finish_result = server_login_start_result
-                            .state
-                            .finish(
-                                CredentialFinalization::deserialize(&credential_finalization_bytes)
-                                    .unwrap(),
-                            )
-                            .unwrap();
-                        // println!(
-                        //     "Server sending: `{:?}`",
-                        //     server_login_finish_result.session_key
-                        // );
-                        ws.write_frame(Frame::new(
-                            true,
-                            OpCode::Binary,
-                            None,
-                            server_login_finish_result.session_key.as_slice().into(),
-                        ))
-                        .await?;
-
-                        let confirm_frame = ws.read_frame().await?;
-                        match confirm_frame.opcode {
-                            OpCode::Close => {}
-                            OpCode::Binary => {
-                                let status = confirm_frame.payload.to_vec();
-                                let authenticated = vec![1] == status;
-                                println!("Authenticated: `{authenticated}`");
-                                ws.write_frame(Frame::close(1000, "done".as_bytes().into()))
-                                    .await?;
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            _ => {}
-        }
-    }
-
-    Ok(())
 }
 
 async fn ws_authenticate(
@@ -238,7 +431,7 @@ async fn ws_authenticate(
 ) -> impl IntoResponse {
     let (response, fut) = ws.upgrade().unwrap();
     tokio::task::spawn(async move {
-        if let Err(e) = handle_client_authenticate(fut, state).await {
+        if let Err(e) = state.authenticate(fut).await {
             eprintln!("Error in websocket connection: `{e}`");
         }
     });
@@ -294,16 +487,11 @@ async fn main() {
         store: sled::open("tinap_db").unwrap(),
     };
 
-    // let state = Server {
-    //     server_setup: ServerSetup::new(&mut OsRng),
-    //     store: sled::open("tinap_db").unwrap(),
-    // };
     let app = Router::new()
         .route("/", get(root))
         .route("/registration", get(ws_registration))
         .route("/authenticate", get(ws_authenticate))
         .with_state(state);
-    // .route("/login", get(ws_login));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:6969")
         .await
