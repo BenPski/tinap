@@ -55,9 +55,13 @@ async fn main() {
 
             println!("Registering `{username}`");
 
-            match client.register_user(username, password_input).await {
-                Ok(_) => {
-                    println!("User registered");
+            match client.register(username, password_input).await {
+                Ok(auth) => {
+                    if auth {
+                        println!("User registered");
+                    } else {
+                        println!("User already registered");
+                    }
                 }
                 Err(err) => {
                     println!("Error occurred: `{err}`");
@@ -72,10 +76,12 @@ async fn main() {
                 .prompt()
                 .unwrap();
 
-            match client.authenticate_user(username, password).await {
+            match client.authenticate(username, password).await {
                 Ok(auth) => {
-                    if auth {
-                        println!("User confirmed");
+                    if let Some(auth) = auth {
+                        println!("User authorized");
+                        println!("session_key: `{:?}`", auth.session_key());
+                        println!("export_key: `{:?}`", auth.export_key());
                     } else {
                         println!("Could not authenticate");
                     }
