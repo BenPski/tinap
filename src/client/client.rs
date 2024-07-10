@@ -13,6 +13,7 @@ use opaque_ke::{
     ClientRegistration, ClientRegistrationFinishParameters, CredentialResponse,
     RegistrationResponse,
 };
+use pants_gen::password::PasswordSpec;
 use rand::rngs::OsRng;
 use thiserror::Error;
 
@@ -53,10 +54,6 @@ enum ClientAuthState {
 enum ClientError {
     #[error("Communication terminated early")]
     ClosedEarly,
-    #[error("Failed at registration step")]
-    ClientRegistration,
-    #[error("Failed to deserialize data")]
-    DeserializeError,
     #[error("Protocal error `{0:?}`")]
     ProtocolError(ProtocolError),
     #[error("Failed to authenticate")]
@@ -67,8 +64,6 @@ impl ClientError {
     fn to_code(&self) -> u16 {
         match self {
             Self::ClosedEarly => 1000,
-            Self::ClientRegistration => 1008,
-            Self::DeserializeError => 1007,
             Self::ProtocolError(_) => 1008,
             Self::NotAuthenticated => 1008,
         }
@@ -84,6 +79,40 @@ where
 {
     fn execute(&self, fut: Fut) {
         tokio::task::spawn(fut);
+    }
+}
+
+pub struct LoginStart {
+    username: String,
+    password: String,
+}
+
+impl LoginStart {
+    pub fn new(username: String) -> Self {
+        let password = PasswordSpec::default().generate().unwrap();
+        Self { username, password }
+    }
+
+    pub fn confirm(self, password: String) -> Option<LoginInfo> {
+        if password == self.password {
+            Some(LoginInfo {
+                username: self.username,
+                password: self.password,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+pub struct LoginInfo {
+    username: String,
+    password: String,
+}
+
+impl LoginInfo {
+    pub async fn authenticate(self, client: Client) -> anyhow::Result<bool> {
+        client.authenticate_user(self.username, self.password).await
     }
 }
 
