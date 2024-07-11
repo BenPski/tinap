@@ -5,7 +5,7 @@ use opaque_ke::{
 
 use crate::{Scheme, WithUsername};
 
-use super::server::ServerError;
+use super::error::ServerError;
 
 pub struct RegWaiting {
     server_setup: ServerSetup<Scheme>,
@@ -13,20 +13,17 @@ pub struct RegWaiting {
 
 impl RegWaiting {
     pub fn step(self, initial_data: &[u8]) -> Result<RegInitial, ServerError> {
-        let data: WithUsername = bincode::deserialize(&initial_data)?;
+        let data: WithUsername = bincode::deserialize(initial_data)?;
         let username = data.username;
         let registration_request_bytes = data.data;
-        let registration_request = RegistrationRequest::deserialize(&registration_request_bytes)?;
+        let registration_request = RegistrationRequest::deserialize(registration_request_bytes)?;
         let server_registration_start_result = ServerRegistration::<Scheme>::start(
             &self.server_setup,
             registration_request,
             username,
         )?;
 
-        Ok(RegInitial::new(
-            username.into(),
-            server_registration_start_result,
-        ))
+        Ok(RegInitial::new(username, server_registration_start_result))
     }
 
     pub fn new(server_setup: ServerSetup<Scheme>) -> Self {
@@ -59,7 +56,7 @@ impl<'a> RegInitial<'a> {
     }
 
     pub fn step(self, message_bytes: &[u8]) -> Result<RegUpload<'a>, ServerError> {
-        let registration_upload = RegistrationUpload::<Scheme>::deserialize(&message_bytes)?;
+        let registration_upload = RegistrationUpload::<Scheme>::deserialize(message_bytes)?;
         let password_file = ServerRegistration::finish(registration_upload);
         let password_serialized = password_file.serialize();
 
@@ -84,6 +81,6 @@ impl<'a> RegUpload<'a> {
     }
 
     pub fn to_data(&self) -> (&[u8], &[u8]) {
-        (&self.username, &self.password_serialized)
+        (self.username, &self.password_serialized)
     }
 }

@@ -18,44 +18,15 @@ impl CipherSuite for Scheme {
     type Ksf = opaque_ke::ksf::Identity;
 }
 
-enum ClientRegState {
-    Initial
-    WaitingFinal
-}
-
-enum ServerRegState {
-    WaitingForInput,
-}
-
-enum ClientRegMessage {
-    Start
-}
-
-enum ServerRegMessage {
-    
-}
-
-impl ClientRegState {
-    fn receive(self, message: ClientRegMessage) -> Self {
-        match (self, message) {
-            (ClientRegState::Initial, ClientRegMessage::Start) => {
-                ClientRegState::WaitingFinal
-            }
-            _ => ClientRegState::Initial
-        }
-    }
-}
-
 fn account_registration(
     server_setup: &ServerSetup<Scheme>,
     username: String,
     password: String,
 ) -> GenericArray<u8, ServerRegistrationLen<Scheme>> {
-    let client_state = ClientRegState::Initial;
-    let server_state = ServerRegState::WaitingForInput;
+    // let client_state = ClientRegState::Initial;
+    // let server_state = ServerRegState::WaitingForInput;
 
-    let client_state = client_state.receive(ClientRegMessage::Start);
-    
+    // let client_state = client_state.receive(ClientRegMessage::Start);
 
     let mut client_rng = OsRng;
     let client_registration_start_result =

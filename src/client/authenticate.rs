@@ -6,7 +6,7 @@ use rand::rngs::OsRng;
 
 use crate::{Scheme, WithUsername};
 
-use super::client::ClientError;
+use super::error::ClientError;
 
 pub struct AuthenticateInitialize {
     username: String,
@@ -32,7 +32,7 @@ impl AuthenticateInitialize {
     pub fn to_data(&self) -> Vec<u8> {
         let credential_request_bytes = self.client_login_start_result.message.serialize();
         let with_username = WithUsername {
-            username: self.username.as_bytes().into(),
+            username: self.username.as_bytes(),
             data: credential_request_bytes.as_slice(),
         };
         bincode::serialize(&with_username).unwrap()
@@ -44,7 +44,7 @@ impl AuthenticateInitialize {
             match ClientLogin::<Scheme>::start(&mut client_rng, password.as_bytes()) {
                 Ok(res) => res,
                 Err(err) => {
-                    return Err(ClientError::ProtocolError(err).into());
+                    return Err(ClientError::ProtocolError(err));
                 }
             };
         Ok(Self {

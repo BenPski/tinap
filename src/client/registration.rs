@@ -6,7 +6,7 @@ use rand::rngs::OsRng;
 
 use crate::{Scheme, WithUsername};
 
-use super::client::ClientError;
+use super::error::ClientError;
 
 pub struct RegistrationInitialize {
     username: String,
@@ -24,7 +24,7 @@ impl RegistrationInitialize {
             match RegistrationResponse::deserialize(&registration_response_bytes) {
                 Ok(res) => res,
                 Err(err) => {
-                    return Err(ClientError::ProtocolError(err).into());
+                    return Err(ClientError::ProtocolError(err));
                 }
             };
 
@@ -37,7 +37,7 @@ impl RegistrationInitialize {
             ) {
                 Ok(res) => res,
                 Err(err) => {
-                    return Err(ClientError::ProtocolError(err).into());
+                    return Err(ClientError::ProtocolError(err));
                 }
             };
 
@@ -47,7 +47,7 @@ impl RegistrationInitialize {
     pub fn to_data(&self) -> Vec<u8> {
         let registration_request_bytes = self.client_registration_start_result.message.serialize();
         let with_username = WithUsername {
-            username: self.username.as_bytes().into(),
+            username: self.username.as_bytes(),
             data: registration_request_bytes.as_slice(),
         };
         bincode::serialize(&with_username).unwrap()
@@ -59,7 +59,7 @@ impl RegistrationInitialize {
             match ClientRegistration::<Scheme>::start(&mut client_rng, password.as_bytes()) {
                 Ok(res) => res,
                 Err(err) => {
-                    return Err(ClientError::ProtocolError(err).into());
+                    return Err(ClientError::ProtocolError(err));
                 }
             };
         Ok(Self {

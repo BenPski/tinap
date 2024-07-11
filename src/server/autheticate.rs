@@ -6,7 +6,7 @@ use rand::rngs::OsRng;
 
 use crate::{Scheme, WithUsername};
 
-use super::server::ServerError;
+use super::error::ServerError;
 
 pub struct AuthWaiting {
     server_setup: ServerSetup<Scheme>,
@@ -50,17 +50,17 @@ impl<'a> AuthInitial<'a> {
     }
 
     pub fn username(&self) -> &[u8] {
-        &self.username
+        self.username
     }
 
     pub fn step(self, password_file_bytes: &[u8]) -> Result<AuthWithCreds, ServerError> {
-        let password_file = ServerRegistration::<Scheme>::deserialize(&password_file_bytes)?;
+        let password_file = ServerRegistration::<Scheme>::deserialize(password_file_bytes)?;
         let server_login_start_result = ServerLogin::start(
             &mut OsRng,
             &self.server_setup,
             Some(password_file),
             self.credential_request,
-            &self.username,
+            self.username,
             ServerLoginStartParameters::default(),
         )?;
         Ok(AuthWithCreds::new(server_login_start_result))
@@ -88,7 +88,7 @@ impl AuthWithCreds {
 
     pub fn step(self, credential_finalization_bytes: &[u8]) -> Result<AuthFinal, ServerError> {
         let credential_finalization =
-            CredentialFinalization::deserialize(&credential_finalization_bytes)?;
+            CredentialFinalization::deserialize(credential_finalization_bytes)?;
         let server_login_finish_result = self
             .server_login_start_result
             .state
