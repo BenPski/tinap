@@ -1,5 +1,5 @@
 use axum::{routing::get, Router};
-use tinap::server::server::{ws_authenticate, ws_registration, Server};
+use tinap::server::{ws_authenticate, ws_registration, Server};
 
 #[tokio::main]
 async fn main() {

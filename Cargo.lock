@@ -208,6 +208,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "boring-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7db5ebeab458e448d63af5666308233bfc871dca21985f1ab8cd3fcefcd65571"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.69",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1360,6 +1371,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bincode",
+ "boring-derive",
  "fastwebsockets",
  "generic-array",
  "http-body-util",
