@@ -134,8 +134,8 @@ impl Server {
             }
         }
 
-        let data = frame.payload.into();
-        let state = match state.step(data) {
+        let data = frame.payload.to_vec();
+        let state = match state.step(&data) {
             Ok(res) => res,
             Err(err) => {
                 Self::close(ws, &err).await?;
@@ -159,8 +159,8 @@ impl Server {
             }
         }
 
-        let data = frame.payload.into();
-        let state = match state.step(data) {
+        let data = frame.payload.to_vec();
+        let state = match state.step(&data) {
             Ok(res) => res,
             Err(err) => {
                 Self::close(ws, &err).await?;
@@ -200,8 +200,8 @@ impl Server {
         let mut ws = fastwebsockets::FragmentCollector::new(fut.await?);
         let state = AuthWaiting::new(self.server_setup.clone());
         let frame = ws.read_frame().await?;
-        let data = frame.payload.into();
-        let state = match state.step(data) {
+        let data = frame.payload.to_vec();
+        let state = match state.step(&data) {
             Ok(res) => res,
             Err(err) => {
                 Self::close(ws, &err).await?;
@@ -250,8 +250,8 @@ impl Server {
             }
         }
 
-        let data = frame.payload.into();
-        let state = match state.step(data) {
+        let data = frame.payload.to_vec();
+        let state = match state.step(&data) {
             Ok(res) => res,
             Err(err) => {
                 Self::close(ws, &err).await?;
@@ -275,8 +275,8 @@ impl Server {
             }
         }
 
-        let data = frame.payload.into();
-        let state = state.step(data);
+        let data = frame.payload.to_vec();
+        let state = state.step(&data);
 
         ws.write_frame(Frame::close(1000, b"done".as_slice().into()))
             .await?;

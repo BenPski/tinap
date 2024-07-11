@@ -12,7 +12,7 @@ pub struct RegWaiting {
 }
 
 impl RegWaiting {
-    pub fn step(self, initial_data: Vec<u8>) -> Result<RegInitial, ServerError> {
+    pub fn step(self, initial_data: &[u8]) -> Result<RegInitial, ServerError> {
         let data: WithUsername = bincode::deserialize(&initial_data)?;
         let username = data.username;
         let registration_request_bytes = data.data;
@@ -34,14 +34,14 @@ impl RegWaiting {
     }
 }
 
-pub struct RegInitial {
-    username: Vec<u8>,
+pub struct RegInitial<'a> {
+    username: &'a [u8],
     server_registration_start_result: ServerRegistrationStartResult<Scheme>,
 }
 
-impl RegInitial {
+impl<'a> RegInitial<'a> {
     pub fn new(
-        username: Vec<u8>,
+        username: &'a [u8],
         server_registration_start_result: ServerRegistrationStartResult<Scheme>,
     ) -> Self {
         Self {
@@ -58,7 +58,7 @@ impl RegInitial {
             .into()
     }
 
-    pub fn step(self, message_bytes: Vec<u8>) -> Result<RegUpload, ServerError> {
+    pub fn step(self, message_bytes: &[u8]) -> Result<RegUpload<'a>, ServerError> {
         let registration_upload = RegistrationUpload::<Scheme>::deserialize(&message_bytes)?;
         let password_file = ServerRegistration::finish(registration_upload);
         let password_serialized = password_file.serialize();
@@ -70,13 +70,13 @@ impl RegInitial {
     }
 }
 
-pub struct RegUpload {
-    username: Vec<u8>,
+pub struct RegUpload<'a> {
+    username: &'a [u8],
     password_serialized: Vec<u8>,
 }
 
-impl RegUpload {
-    pub fn new(username: Vec<u8>, password_serialized: Vec<u8>) -> Self {
+impl<'a> RegUpload<'a> {
+    pub fn new(username: &'a [u8], password_serialized: Vec<u8>) -> Self {
         Self {
             username,
             password_serialized,
