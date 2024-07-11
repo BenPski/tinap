@@ -7,6 +7,8 @@ use crate::{Scheme, WithUsername};
 
 use super::error::ServerError;
 
+/// initial waiting state, given the first message from the client can move to the next state
+/// [`RegInitial`]
 pub struct RegWaiting<'a> {
     server_setup: ServerSetup<Scheme<'a>>,
 }
@@ -34,6 +36,9 @@ impl<'a> RegWaiting<'a> {
     }
 }
 
+/// the second state after receiving the first message, with the next message data moves to
+/// [`RegUpload`]
+/// Arguably poorly named
 pub struct RegInitial<'a> {
     username: Vec<u8>,
     server_registration_start_result: ServerRegistrationStartResult<Scheme<'a>>,
@@ -70,6 +75,8 @@ impl<'a> RegInitial<'a> {
     }
 }
 
+/// final state with the username and verification data stored in the database
+/// Also arguably poorly named
 pub struct RegUpload {
     username: Vec<u8>,
     password_serialized: Vec<u8>,

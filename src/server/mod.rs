@@ -16,6 +16,8 @@ use registration::RegWaiting;
 
 use crate::Scheme;
 
+/// [`Server`] maintains the server side setup for OPAQUE protocol, maintains the connection to the
+/// underlying `sled` database, and responds to the websocket connections
 #[derive(Clone)]
 pub struct Server<'a> {
     server_setup: ServerSetup<Scheme<'a>>,
@@ -30,6 +32,8 @@ impl<'a> Server<'a> {
         }
     }
 
+    /// ensures that the server makes use of previously established keys and connects to the
+    /// database. Opens or creates files as needed
     pub fn initialize() -> Self {
         let server_setup = match read("server_setup") {
             Ok(data) => bincode::deserialize(&data).expect("Failed to deserialize server_setup"),
@@ -51,6 +55,7 @@ impl<'a> Server<'a> {
 }
 
 impl<'a> Server<'a> {
+    /// wrapper to send a `Close` message in case there is an error
     async fn close(
         mut ws: fastwebsockets::FragmentCollector<TokioIo<Upgraded>>,
         err: &ServerError,
@@ -60,6 +65,7 @@ impl<'a> Server<'a> {
         Ok(())
     }
 
+    /// handle a registration request
     async fn registration(&self, fut: upgrade::UpgradeFut) -> Result<(), ServerError> {
         let mut ws = fastwebsockets::FragmentCollector::new(fut.await?);
         let state = RegWaiting::new(self.server_setup.clone());
@@ -139,6 +145,7 @@ impl<'a> Server<'a> {
         Ok(())
     }
 
+    /// handle an authentication request
     async fn authenticate(&self, fut: upgrade::UpgradeFut) -> Result<AuthConfirm, ServerError> {
         let mut ws = fastwebsockets::FragmentCollector::new(fut.await?);
         let state = AuthWaiting::new(self.server_setup.clone());
@@ -228,6 +235,7 @@ impl<'a> Server<'a> {
     }
 }
 
+/// hook for calling the registration endpoint
 pub async fn ws_registration(
     ws: upgrade::IncomingUpgrade,
     State(state): State<Server<'static>>,
@@ -242,6 +250,7 @@ pub async fn ws_registration(
     response
 }
 
+/// hook for calling the authentication endpoint
 pub async fn ws_authenticate(
     ws: upgrade::IncomingUpgrade,
     State(state): State<Server<'static>>,
