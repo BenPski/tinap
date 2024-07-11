@@ -8,18 +8,18 @@ use crate::{Scheme, WithUsername};
 
 use super::error::ClientError;
 
-pub struct RegistrationInitialize {
+pub struct RegistrationInitialize<'a> {
     username: String,
     password: String,
     client_rng: OsRng,
-    client_registration_start_result: ClientRegistrationStartResult<Scheme>,
+    client_registration_start_result: ClientRegistrationStartResult<Scheme<'a>>,
 }
 
-impl RegistrationInitialize {
+impl<'a> RegistrationInitialize<'a> {
     pub fn step(
         self,
         registration_response_bytes: Vec<u8>,
-    ) -> Result<RegistrationWaiting, ClientError> {
+    ) -> Result<RegistrationWaiting<'a>, ClientError> {
         let registration_response =
             match RegistrationResponse::deserialize(&registration_response_bytes) {
                 Ok(res) => res,
@@ -71,12 +71,14 @@ impl RegistrationInitialize {
     }
 }
 
-pub struct RegistrationWaiting {
-    client_finish_registration_result: ClientRegistrationFinishResult<Scheme>,
+pub struct RegistrationWaiting<'a> {
+    client_finish_registration_result: ClientRegistrationFinishResult<Scheme<'a>>,
 }
 
-impl RegistrationWaiting {
-    pub fn new(client_finish_registration_result: ClientRegistrationFinishResult<Scheme>) -> Self {
+impl<'a> RegistrationWaiting<'a> {
+    pub fn new(
+        client_finish_registration_result: ClientRegistrationFinishResult<Scheme<'a>>,
+    ) -> Self {
         Self {
             client_finish_registration_result,
         }

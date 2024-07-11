@@ -8,17 +8,17 @@ use crate::{Scheme, WithUsername};
 
 use super::error::ClientError;
 
-pub struct AuthenticateInitialize {
+pub struct AuthenticateInitialize<'a> {
     username: String,
     password: String,
-    client_login_start_result: ClientLoginStartResult<Scheme>,
+    client_login_start_result: ClientLoginStartResult<Scheme<'a>>,
 }
 
-impl AuthenticateInitialize {
+impl<'a> AuthenticateInitialize<'a> {
     pub fn step(
         self,
         credential_response_bytes: Vec<u8>,
-    ) -> Result<AuthenticateWaiting, ClientError> {
+    ) -> Result<AuthenticateWaiting<'a>, ClientError> {
         let credential_response = CredentialResponse::deserialize(&credential_response_bytes)?;
         let client_login_finish_result = self.client_login_start_result.state.finish(
             self.password.as_bytes(),
@@ -55,12 +55,12 @@ impl AuthenticateInitialize {
     }
 }
 
-pub struct AuthenticateWaiting {
-    client_login_finish_result: ClientLoginFinishResult<Scheme>,
+pub struct AuthenticateWaiting<'a> {
+    client_login_finish_result: ClientLoginFinishResult<Scheme<'a>>,
 }
 
-impl AuthenticateWaiting {
-    pub fn new(client_login_finish_result: ClientLoginFinishResult<Scheme>) -> Self {
+impl<'a> AuthenticateWaiting<'a> {
+    pub fn new(client_login_finish_result: ClientLoginFinishResult<Scheme<'a>>) -> Self {
         Self {
             client_login_finish_result,
         }
@@ -74,20 +74,20 @@ impl AuthenticateWaiting {
             .into()
     }
 
-    pub fn step(self, server_key: Vec<u8>) -> AuthenticateFinish {
+    pub fn step(self, server_key: Vec<u8>) -> AuthenticateFinish<'a> {
         AuthenticateFinish::new(server_key, self.client_login_finish_result)
     }
 }
 
-pub struct AuthenticateFinish {
+pub struct AuthenticateFinish<'a> {
     server_key: Vec<u8>,
-    client_login_finish_result: ClientLoginFinishResult<Scheme>,
+    client_login_finish_result: ClientLoginFinishResult<Scheme<'a>>,
 }
 
-impl AuthenticateFinish {
+impl<'a> AuthenticateFinish<'a> {
     pub fn new(
         server_key: Vec<u8>,
-        client_login_finish_result: ClientLoginFinishResult<Scheme>,
+        client_login_finish_result: ClientLoginFinishResult<Scheme<'a>>,
     ) -> Self {
         Self {
             server_key,

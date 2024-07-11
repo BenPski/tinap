@@ -8,22 +8,22 @@ use crate::{Scheme, WithUsername};
 
 use super::error::ServerError;
 
-pub struct AuthWaiting {
-    server_setup: ServerSetup<Scheme>,
+pub struct AuthWaiting<'a> {
+    server_setup: ServerSetup<Scheme<'a>>,
 }
 
-impl AuthWaiting {
-    pub fn new(server_setup: ServerSetup<Scheme>) -> Self {
+impl<'a> AuthWaiting<'a> {
+    pub fn new(server_setup: ServerSetup<Scheme<'a>>) -> Self {
         Self { server_setup }
     }
 
-    pub fn step(self, initial_data: &[u8]) -> Result<AuthInitial, ServerError> {
-        let data: WithUsername = bincode::deserialize(initial_data)?;
+    pub fn step(self, initial_data: Vec<u8>) -> Result<AuthInitial<'a>, ServerError> {
+        let data: WithUsername = bincode::deserialize(&initial_data)?;
         let username = data.username;
         let credential_request_bytes = data.data;
         let credential_request = CredentialRequest::deserialize(credential_request_bytes)?;
         Ok(AuthInitial::new(
-            username,
+            username.into(),
             credential_request,
             self.server_setup,
         ))
@@ -31,16 +31,16 @@ impl AuthWaiting {
 }
 
 pub struct AuthInitial<'a> {
-    username: &'a [u8],
-    credential_request: CredentialRequest<Scheme>,
-    server_setup: ServerSetup<Scheme>,
+    username: Vec<u8>,
+    credential_request: CredentialRequest<Scheme<'a>>,
+    server_setup: ServerSetup<Scheme<'a>>,
 }
 
 impl<'a> AuthInitial<'a> {
     pub fn new(
-        username: &'a [u8],
-        credential_request: CredentialRequest<Scheme>,
-        server_setup: ServerSetup<Scheme>,
+        username: Vec<u8>,
+        credential_request: CredentialRequest<Scheme<'a>>,
+        server_setup: ServerSetup<Scheme<'a>>,
     ) -> Self {
         Self {
             username,
@@ -50,29 +50,29 @@ impl<'a> AuthInitial<'a> {
     }
 
     pub fn username(&self) -> &[u8] {
-        self.username
+        &self.username
     }
 
-    pub fn step(self, password_file_bytes: &[u8]) -> Result<AuthWithCreds, ServerError> {
-        let password_file = ServerRegistration::<Scheme>::deserialize(password_file_bytes)?;
+    pub fn step(self, password_file_bytes: Vec<u8>) -> Result<AuthWithCreds<'a>, ServerError> {
+        let password_file = ServerRegistration::<Scheme>::deserialize(&password_file_bytes)?;
         let server_login_start_result = ServerLogin::start(
             &mut OsRng,
             &self.server_setup,
             Some(password_file),
             self.credential_request,
-            self.username,
+            &self.username,
             ServerLoginStartParameters::default(),
         )?;
         Ok(AuthWithCreds::new(server_login_start_result))
     }
 }
 
-pub struct AuthWithCreds {
-    server_login_start_result: ServerLoginStartResult<Scheme>,
+pub struct AuthWithCreds<'a> {
+    server_login_start_result: ServerLoginStartResult<Scheme<'a>>,
 }
 
-impl AuthWithCreds {
-    pub fn new(server_login_start_result: ServerLoginStartResult<Scheme>) -> Self {
+impl<'a> AuthWithCreds<'a> {
+    pub fn new(server_login_start_result: ServerLoginStartResult<Scheme<'a>>) -> Self {
         Self {
             server_login_start_result,
         }
@@ -86,9 +86,12 @@ impl AuthWithCreds {
             .into()
     }
 
-    pub fn step(self, credential_finalization_bytes: &[u8]) -> Result<AuthFinal, ServerError> {
+    pub fn step(
+        self,
+        credential_finalization_bytes: Vec<u8>,
+    ) -> Result<AuthFinal<'a>, ServerError> {
         let credential_finalization =
-            CredentialFinalization::deserialize(credential_finalization_bytes)?;
+            CredentialFinalization::deserialize(&credential_finalization_bytes)?;
         let server_login_finish_result = self
             .server_login_start_result
             .state
@@ -97,12 +100,12 @@ impl AuthWithCreds {
     }
 }
 
-pub struct AuthFinal {
-    server_login_finish_result: ServerLoginFinishResult<Scheme>,
+pub struct AuthFinal<'a> {
+    server_login_finish_result: ServerLoginFinishResult<Scheme<'a>>,
 }
 
-impl AuthFinal {
-    pub fn new(server_login_finish_result: ServerLoginFinishResult<Scheme>) -> Self {
+impl<'a> AuthFinal<'a> {
+    pub fn new(server_login_finish_result: ServerLoginFinishResult<Scheme<'a>>) -> Self {
         Self {
             server_login_finish_result,
         }
@@ -115,7 +118,7 @@ impl AuthFinal {
             .into()
     }
 
-    pub fn step(self, state: &[u8]) -> AuthConfirm {
+    pub fn step(self, state: Vec<u8>) -> AuthConfirm {
         AuthConfirm::new(state == vec![1])
     }
 }
