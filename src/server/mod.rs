@@ -233,6 +233,109 @@ impl<'a> Server<'a> {
 
         Ok(state)
     }
+
+    /// handle a delete request
+    async fn delete(&self, fut: upgrade::UpgradeFut) -> Result<bool, ServerError> {
+        let mut ws = fastwebsockets::FragmentCollector::new(fut.await?);
+        let state = AuthWaiting::new(self.server_setup.clone());
+        let frame = ws.read_frame().await?;
+        let data = frame.payload.to_vec();
+        let state = match state.step(data) {
+            Ok(res) => res,
+            Err(err) => {
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        };
+
+        let password_file_bytes = match self.store.get(state.username()) {
+            Ok(res) => {
+                if let Some(res) = res {
+                    res
+                } else {
+                    let err = ServerError::UserDoesNotExist;
+                    Self::close(ws, &err).await?;
+                    return Err(err);
+                }
+            }
+            Err(err) => {
+                let err = err.into();
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        };
+
+        let state = match state.step(password_file_bytes.to_vec()) {
+            Ok(res) => res,
+            Err(err) => {
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        };
+
+        let data = state.to_data();
+        ws.write_frame(Frame::new(true, OpCode::Binary, None, data.into()))
+            .await?;
+        let frame = ws.read_frame().await?;
+        match frame.opcode {
+            OpCode::Binary => {}
+            OpCode::Close => {
+                return Err(ServerError::ClosedEarly);
+            }
+            _ => {
+                let err = frame.into();
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        }
+
+        let data = frame.payload.to_vec();
+        let state = match state.step(data) {
+            Ok(res) => res,
+            Err(err) => {
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        };
+        let data = state.to_data();
+
+        ws.write_frame(Frame::new(true, OpCode::Binary, None, data.into()))
+            .await?;
+        let frame = ws.read_frame().await?;
+        match frame.opcode {
+            OpCode::Binary => {}
+            OpCode::Close => {
+                return Err(ServerError::ClosedEarly);
+            }
+            _ => {
+                let err = frame.into();
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        }
+
+        let data = frame.payload.to_vec();
+        let state = state.step(data);
+
+        let removed = if state.authenticated() {
+            let res = match self.store.remove(state.username()) {
+                Ok(res) => res,
+                Err(err) => {
+                    let err = err.into();
+                    Self::close(ws, &err).await?;
+                    return Err(err);
+                }
+            };
+            res.is_some()
+        } else {
+            false
+        };
+        let response = if removed { vec![1] } else { vec![0] };
+        ws.write_frame(Frame::close(1000, response.as_slice().into()))
+            .await?;
+
+        Ok(removed)
+    }
 }
 
 /// hook for calling the registration endpoint
@@ -258,6 +361,21 @@ pub async fn ws_authenticate(
     let (response, fut) = ws.upgrade().unwrap();
     tokio::task::spawn(async move {
         if let Err(e) = state.authenticate(fut).await {
+            eprintln!("Error in websocket connection: `{e}`");
+        }
+    });
+
+    response
+}
+
+/// hook for calling the authentication endpoint
+pub async fn ws_delete(
+    ws: upgrade::IncomingUpgrade,
+    State(state): State<Server<'static>>,
+) -> impl IntoResponse {
+    let (response, fut) = ws.upgrade().unwrap();
+    tokio::task::spawn(async move {
+        if let Err(e) = state.delete(fut).await {
             eprintln!("Error in websocket connection: `{e}`");
         }
     });

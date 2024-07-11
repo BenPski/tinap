@@ -63,17 +63,22 @@ impl<'a> AuthInitial<'a> {
             &self.username,
             ServerLoginStartParameters::default(),
         )?;
-        Ok(AuthWithCreds::new(server_login_start_result))
+        Ok(AuthWithCreds::new(self.username, server_login_start_result))
     }
 }
 
 pub struct AuthWithCreds<'a> {
+    username: Vec<u8>,
     server_login_start_result: ServerLoginStartResult<Scheme<'a>>,
 }
 
 impl<'a> AuthWithCreds<'a> {
-    pub fn new(server_login_start_result: ServerLoginStartResult<Scheme<'a>>) -> Self {
+    pub fn new(
+        username: Vec<u8>,
+        server_login_start_result: ServerLoginStartResult<Scheme<'a>>,
+    ) -> Self {
         Self {
+            username,
             server_login_start_result,
         }
     }
@@ -96,17 +101,22 @@ impl<'a> AuthWithCreds<'a> {
             .server_login_start_result
             .state
             .finish(credential_finalization)?;
-        Ok(AuthFinal::new(server_login_finish_result))
+        Ok(AuthFinal::new(self.username, server_login_finish_result))
     }
 }
 
 pub struct AuthFinal<'a> {
+    username: Vec<u8>,
     server_login_finish_result: ServerLoginFinishResult<Scheme<'a>>,
 }
 
 impl<'a> AuthFinal<'a> {
-    pub fn new(server_login_finish_result: ServerLoginFinishResult<Scheme<'a>>) -> Self {
+    pub fn new(
+        username: Vec<u8>,
+        server_login_finish_result: ServerLoginFinishResult<Scheme<'a>>,
+    ) -> Self {
         Self {
+            username,
             server_login_finish_result,
         }
     }
@@ -119,20 +129,28 @@ impl<'a> AuthFinal<'a> {
     }
 
     pub fn step(self, state: Vec<u8>) -> AuthConfirm {
-        AuthConfirm::new(state == vec![1])
+        AuthConfirm::new(state == vec![1], self.username)
     }
 }
 
 pub struct AuthConfirm {
     authenticated: bool,
+    username: Vec<u8>,
 }
 
 impl AuthConfirm {
-    pub fn new(authenticated: bool) -> Self {
-        Self { authenticated }
+    pub fn new(authenticated: bool, username: Vec<u8>) -> Self {
+        Self {
+            authenticated,
+            username,
+        }
     }
 
     pub fn authenticated(&self) -> bool {
         self.authenticated
+    }
+
+    pub fn username(&self) -> &[u8] {
+        &self.username
     }
 }

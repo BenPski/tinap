@@ -231,4 +231,76 @@ impl Client {
 
         Ok(auth)
     }
+
+    pub async fn delete(&self, username: String, password: String) -> Result<bool, ClientError> {
+        // setup authentication
+        let mut ws = self.connect("delete").await?;
+        let state = AuthenticateInitialize::new(username, password)?;
+        let data = state.to_data();
+
+        // send and receive with server
+        ws.write_frame(Frame::new(true, OpCode::Binary, None, data.into()))
+            .await?;
+        let frame = ws.read_frame().await?;
+        match frame.opcode {
+            OpCode::Binary => {}
+            OpCode::Close => {
+                return Err(ClientError::ClosedEarly);
+            }
+            _ => {
+                let err = frame.into();
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        }
+
+        // advance state
+        let credential_response_bytes = frame.payload.to_vec();
+        let state = match state.step(credential_response_bytes) {
+            Ok(res) => res,
+            Err(err) => {
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        };
+        let data = state.to_data();
+
+        // send and receive with server
+        ws.write_frame(Frame::new(true, OpCode::Binary, None, data.into()))
+            .await?;
+        let frame = ws.read_frame().await?;
+        match frame.opcode {
+            OpCode::Binary => {}
+            OpCode::Close => return Err(ClientError::ClosedEarly),
+            _ => {
+                let err = frame.into();
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        };
+
+        // check if authentication passed
+        let server_key = frame.payload.into();
+        let state = state.step(server_key);
+        let auth = state.to_data();
+
+        // let server know state of authentication
+        let data = if auth { vec![1] } else { vec![0] };
+        ws.write_frame(Frame::new(true, OpCode::Binary, None, data.into()))
+            .await?;
+        let frame = ws.read_frame().await?;
+        match frame.opcode {
+            OpCode::Close => {}
+            _ => {
+                let err = frame.into();
+                Self::close(ws, &err).await?;
+                return Err(err);
+            }
+        };
+
+        let data = frame.payload.to_vec();
+
+        // ignore the headers
+        Ok(data[data.len() - 1] == 1)
+    }
 }

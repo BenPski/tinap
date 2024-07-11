@@ -6,6 +6,7 @@ use tinap::client::Client;
 enum Choice {
     Register,
     Login,
+    Delete,
 }
 
 impl Display for Choice {
@@ -13,6 +14,7 @@ impl Display for Choice {
         match self {
             Self::Register => write!(f, "Register"),
             Self::Login => write!(f, "Login"),
+            Self::Delete => write!(f, "Delete"),
         }
     }
 }
@@ -20,7 +22,7 @@ impl Display for Choice {
 #[tokio::main]
 async fn main() {
     let client = Client::new("127.0.0.1".to_string(), 6969);
-    let choices = vec![Choice::Login, Choice::Register];
+    let choices = vec![Choice::Login, Choice::Register, Choice::Delete];
     let action = inquire::Select::new("What would you like to do?", choices).prompt();
     let action = match action {
         Ok(choice) => choice,
@@ -91,13 +93,25 @@ async fn main() {
                 }
             }
         }
+        Choice::Delete => {
+            let username = inquire::Text::new("Username:").prompt().unwrap();
+            let password = inquire::Password::new("Password:")
+                .with_display_mode(inquire::PasswordDisplayMode::Masked)
+                .without_confirmation()
+                .prompt()
+                .unwrap();
+            match client.delete(username, password).await {
+                Ok(res) => {
+                    if res {
+                        println!("Removed user");
+                    } else {
+                        println!("Didn't remove user");
+                    }
+                }
+                Err(err) => {
+                    println!("Error occurred: `{err}`");
+                }
+            }
+        }
     }
-    //
-    // let (username, password) = ("bobody".to_string(), "something".to_string());
-    // client
-    //     .register_user(username.clone(), password.clone())
-    //     .await
-    //     .unwrap();
-    // let auth = client.authenticate_user(username, password).await.unwrap();
-    // println!("Auth: {auth}");
 }
