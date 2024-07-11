@@ -17,13 +17,13 @@ use registration::RegWaiting;
 use crate::Scheme;
 
 #[derive(Clone)]
-pub struct Server {
-    server_setup: ServerSetup<Scheme>,
+pub struct Server<'a> {
+    server_setup: ServerSetup<Scheme<'a>>,
     store: sled::Db,
 }
 
-impl Server {
-    pub fn new(server_setup: ServerSetup<Scheme>, store: sled::Db) -> Self {
+impl<'a> Server<'a> {
+    pub fn new(server_setup: ServerSetup<Scheme<'a>>, store: sled::Db) -> Self {
         Self {
             server_setup,
             store,
@@ -50,7 +50,7 @@ impl Server {
     }
 }
 
-impl Server {
+impl<'a> Server<'a> {
     async fn close(
         mut ws: fastwebsockets::FragmentCollector<TokioIo<Upgraded>>,
         err: &ServerError,
@@ -78,7 +78,7 @@ impl Server {
         }
 
         let data = frame.payload.to_vec();
-        let state = match state.step(&data) {
+        let state = match state.step(data) {
             Ok(res) => res,
             Err(err) => {
                 Self::close(ws, &err).await?;
@@ -103,7 +103,7 @@ impl Server {
         }
 
         let data = frame.payload.to_vec();
-        let state = match state.step(&data) {
+        let state = match state.step(data) {
             Ok(res) => res,
             Err(err) => {
                 Self::close(ws, &err).await?;
@@ -144,7 +144,7 @@ impl Server {
         let state = AuthWaiting::new(self.server_setup.clone());
         let frame = ws.read_frame().await?;
         let data = frame.payload.to_vec();
-        let state = match state.step(&data) {
+        let state = match state.step(data) {
             Ok(res) => res,
             Err(err) => {
                 Self::close(ws, &err).await?;
@@ -169,7 +169,7 @@ impl Server {
             }
         };
 
-        let state = match state.step(&password_file_bytes) {
+        let state = match state.step(password_file_bytes.to_vec()) {
             Ok(res) => res,
             Err(err) => {
                 Self::close(ws, &err).await?;
@@ -194,7 +194,7 @@ impl Server {
         }
 
         let data = frame.payload.to_vec();
-        let state = match state.step(&data) {
+        let state = match state.step(data) {
             Ok(res) => res,
             Err(err) => {
                 Self::close(ws, &err).await?;
@@ -219,7 +219,7 @@ impl Server {
         }
 
         let data = frame.payload.to_vec();
-        let state = state.step(&data);
+        let state = state.step(data);
 
         ws.write_frame(Frame::close(1000, b"done".as_slice()))
             .await?;
@@ -230,7 +230,7 @@ impl Server {
 
 pub async fn ws_registration(
     ws: upgrade::IncomingUpgrade,
-    State(state): State<Server>,
+    State(state): State<Server<'static>>,
 ) -> impl IntoResponse {
     let (response, fut) = ws.upgrade().unwrap();
     tokio::task::spawn(async move {
@@ -244,7 +244,7 @@ pub async fn ws_registration(
 
 pub async fn ws_authenticate(
     ws: upgrade::IncomingUpgrade,
-    State(state): State<Server>,
+    State(state): State<Server<'static>>,
 ) -> impl IntoResponse {
     let (response, fut) = ws.upgrade().unwrap();
     tokio::task::spawn(async move {
