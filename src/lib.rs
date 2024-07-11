@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub mod client;
 pub mod server;
 
+/// The Scheme being used for the OPAQUE protocol
 #[derive(Debug, Clone, Copy)]
 pub struct Scheme<'a> {
     _lifetime: PhantomData<&'a ()>,
@@ -19,12 +20,14 @@ impl<'a> CipherSuite for Scheme<'a> {
     type Ksf = Argon2<'a>;
 }
 
+/// Small wrapper for serializing and deserializing data sent from the client to the server
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WithUsername<'a> {
     pub username: &'a [u8],
     pub data: &'a [u8],
 }
 
+/// Newtype for Argon2 key stretching, wasn't able to get the `opaque_ke` feature working
 #[derive(Default)]
 pub struct Argon2<'a>(argon2::Argon2<'a>);
 const ARGON2_RECOMMENDED_SALT_LEN: usize = 16;
