@@ -2,8 +2,7 @@ use opaque_ke::{
     RegistrationRequest, RegistrationUpload, ServerRegistration, ServerRegistrationStartResult,
     ServerSetup,
 };
-
-use crate::{Scheme, WithUsername};
+use tinap::{Scheme, WithUsername};
 
 use super::error::ServerError;
 

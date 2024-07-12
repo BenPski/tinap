@@ -1,0 +1,19 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+inquire = "0.7.5"
+pants-gen = "0.2.2"
+fastwebsockets.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+boring-derive.workspace = true
+opaque-ke.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+tinap.workspace = true
+bincode.workspace = true
+tokio.workspace = true

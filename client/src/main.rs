@@ -1,7 +1,7 @@
 use std::{fmt::Display, process::exit};
 
+use client::Client;
 use pants_gen::password::PasswordSpec;
-use tinap::client::Client;
 
 enum Choice {
     Register,

@@ -4,7 +4,7 @@ use opaque_ke::{
 };
 use rand::rngs::OsRng;
 
-use crate::{Scheme, WithUsername};
+use tinap::{Scheme, WithUsername};
 
 use super::error::ClientError;
 

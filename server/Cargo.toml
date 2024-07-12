@@ -1,0 +1,18 @@
+[package]
+name = "tinap-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7.5"
+sled = "0.34.7"
+opaque-ke.workspace = true
+rand.workspace = true
+fastwebsockets.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+tokio.workspace = true
+boring-derive.workspace = true
+thiserror.workspace = true
+bincode.workspace = true
+tinap.workspace = true

@@ -1,12 +1,10 @@
+use super::error::ClientError;
 use opaque_ke::{
     ClientLogin, ClientLoginFinishParameters, ClientLoginFinishResult, ClientLoginStartResult,
     CredentialResponse,
 };
 use rand::rngs::OsRng;
-
-use crate::{Scheme, WithUsername};
-
-use super::error::ClientError;
+use tinap::{Scheme, WithUsername};
 
 pub struct AuthenticateInitialize<'a> {
     username: String,

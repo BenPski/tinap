@@ -1,12 +1,10 @@
+use super::error::ServerError;
 use opaque_ke::{
     CredentialFinalization, CredentialRequest, ServerLogin, ServerLoginFinishResult,
     ServerLoginStartParameters, ServerLoginStartResult, ServerRegistration, ServerSetup,
 };
 use rand::rngs::OsRng;
-
-use crate::{Scheme, WithUsername};
-
-use super::error::ServerError;
+use tinap::{Scheme, WithUsername};
 
 pub struct AuthWaiting<'a> {
     server_setup: ServerSetup<Scheme<'a>>,

@@ -1,10 +1,10 @@
-pub mod autheticate;
+pub mod authenticate;
 pub mod error;
 pub mod registration;
 
 use std::fs::{read, write};
 
-use autheticate::{AuthConfirm, AuthWaiting};
+use authenticate::{AuthConfirm, AuthWaiting};
 use axum::{extract::State, response::IntoResponse};
 use error::ServerError;
 use fastwebsockets::{upgrade, Frame, OpCode, WebSocketError};
@@ -14,7 +14,7 @@ use opaque_ke::ServerSetup;
 use rand::rngs::OsRng;
 use registration::RegWaiting;
 
-use crate::Scheme;
+use tinap::Scheme;
 
 /// [`Server`] maintains the server side setup for OPAQUE protocol, maintains the connection to the
 /// underlying `sled` database, and responds to the websocket connections

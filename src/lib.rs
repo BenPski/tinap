@@ -4,9 +4,6 @@ use generic_array::{ArrayLength, GenericArray};
 use opaque_ke::{errors::InternalError, ksf::Ksf, CipherSuite};
 use serde::{Deserialize, Serialize};
 
-pub mod client;
-pub mod server;
-
 /// The Scheme being used for the OPAQUE protocol
 #[derive(Debug, Clone, Copy)]
 pub struct Scheme<'a> {

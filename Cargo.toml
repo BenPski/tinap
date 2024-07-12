@@ -1,8 +1,25 @@
 [package]
 name = "tinap"
 description = "Client and server that authenticate with the OPAQUE key exchange"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[workspace]
+members = [
+	"client",
+	"server"
+]
+
+[workspace.package]
 authors = ["Ben Pawlowski ben@pepski.com"]
 repository = "https://github.com/BenPski/tinap"
+homepage = "https://github.com/BenPski/tinap"
 readme = "README.md"
 exclude = [".github"]
 license = "MIT"
@@ -11,17 +28,23 @@ edition = "2021"
 keywords = ["authentication"]
 categories = ["Authentication"]
 
-[[bin]]
-path = "src/server/main.rs"
-name = "tinap-server"
-
-[[bin]]
-path = "src/client/main.rs"
-name = "tinap-client"
+# [[bin]]
+# path = "src/server/main.rs"
+# name = "tinap-server"
+#
+# [[bin]]
+# path = "src/client/main.rs"
+# name = "tinap-client"
 
 [dependencies]
+generic-array.workspace = true
+opaque-ke.workspace = true
+serde.workspace = true
+argon2.workspace = true
+
+[workspace.dependencies]
+tinap = { version = "0.1.0", path = "." }
 tokio = { version = "1.38.0", features = ["full"] }
-axum = "0.7.5"
 fastwebsockets = { version = "0.8.0", features = ["upgrade", "with_axum"] }
 generic-array = "0.14"
 http-body-util = "0.1.2"
@@ -31,10 +54,7 @@ opaque-ke = "2.0.0"
 rand = "0.8.5"
 serde = { version = "1.0.204", features = ["derive"] }
 bincode = "1.3.3"
-sled = "0.34.7"
 thiserror = "1.0.61"
-inquire = "0.7.5"
-pants-gen = "0.2.2"
 boring-derive = "0.1.1"
 argon2 = { version = "0.5.3", features = ["zeroize"] }
 
