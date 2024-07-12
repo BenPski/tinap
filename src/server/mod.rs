@@ -331,7 +331,7 @@ impl<'a> Server<'a> {
             false
         };
         let response = if removed { vec![1] } else { vec![0] };
-        ws.write_frame(Frame::close(1000, response.as_slice().into()))
+        ws.write_frame(Frame::close(1000, response.as_slice()))
             .await?;
 
         Ok(removed)
